@@ -46,6 +46,7 @@ This Python script generates synthetic indoor scenes using point cloud objects. 
 
 The script generates a dataset with the following structure:
 
+```plaintext
 base_output_folder/
 ├── dataset_name_1/
 │   ├── Area_1/
@@ -64,6 +65,7 @@ base_output_folder/
 │   └── ...
 ├── dataset_name_2/
 └── ...
+```
 
 
 Each room contains individual object files in the Annotations folder and a combined room file with all objects and structural elements.
