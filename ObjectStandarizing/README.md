@@ -3,14 +3,16 @@
 
 ### Overview
 
-**PointCloudForge** is a tool designed to generate, process, and visualize point cloud datasets. It provides customizable settings for lighting and rendering to simulate various environmental conditions, allowing for the creation of high-quality, tailored datasets for 3D models. This repository includes a module for object standardization using the Open3D library, which is key in rendering and visualizing point clouds.
+**PointCloudForge** is a tool designed to generate, process, and visualize point cloud datasets. The **Object Standardizer** module provides a flexible environment to manipulate, render, and standardize point cloud data. With built-in lighting profiles and rendering controls, users can simulate real-world conditions and create clean, standardized datasets. This project is built on the **Open3D** library, which provides advanced 3D visualization capabilities.
 
 ### Features
 
-- **Multiple Lighting Profiles**: Simulate various environmental conditions using predefined profiles (e.g., bright day, cloudy day).
-- **Point Cloud Visualization**: Leverage Open3D to visualize and render point cloud data with flexible controls.
-- **Customizable Settings**: Modify IBL (Image Based Lighting) intensity, sun intensity, and direction to match specific use cases.
-- **Cross-Platform**: Supports both macOS and other operating systems for seamless 3D data processing.
+- **Multiple Lighting Profiles**: Simulate different lighting environments using predefined profiles, such as bright days or cloudy weather.
+- **Customizable Visualizations**: Modify point cloud rendering settings like sun intensity, IBL intensity, and sun direction for more realistic visualizations.
+- **Cross-Platform Compatibility**: Compatible with macOS and other operating systems.
+- **Interactive Point Cloud Viewer**: Open3D's GUI allows for real-time interaction with point clouds, including zoom, pan, and rotation.
+- **Point Cloud Normalization**: Normalize 3D objects by standardizing their dimensions, orientation, and appearance.
+- **Efficient Processing**: Load, transform, and visualize large point cloud datasets with efficient Open3D rendering.
 
 ### Installation
 
@@ -39,19 +41,32 @@ pip install open3d numpy
 
 ### Usage
 
-To use the object standardizer, run the `ObjectStandarizer.py` script. This script provides a customizable environment to visualize and adjust point cloud data.
+To use the object standardizer, run the `ObjectStandarizer.py` script. The script provides the following key functionalities:
 
-```bash
-python ObjectStandarizer.py
-```
+1. **Lighting Profiles**: Choose between several pre-defined lighting profiles, including:
+   - **Bright Day with Sun at +Y**: High IBL intensity simulating direct sunlight.
+   - **Cloudy Day**: Lower intensity, mimicking diffuse lighting.
+   - **Customizable Profiles**: Adjust parameters like IBL intensity, sun intensity, and sun direction to create custom environments.
+   
+2. **Rendering Modes**: Switch between rendering modes to highlight different aspects of the point cloud:
+   - **Unlit Mode**: Visualizes the point cloud without lighting effects.
+   - **Lit Mode**: Applies realistic lighting to the point cloud.
+   - **Normals Mode**: Visualizes the normals of each point, useful for debugging and mesh refinement.
+   - **Depth Mode**: Visualizes the depth of the point cloud for better spatial understanding.
 
-You can choose between different lighting profiles, adjust sun direction, and manipulate point cloud data in real-time.
+3. **Interactive Viewer**: Use Open3D's interactive GUI for real-time visualization of point clouds:
+   - Rotate, pan, and zoom around your point cloud.
+   - Adjust lighting profiles on the fly using the GUI controls.
+   - Supports rendering both 3D models and raw point clouds.
+
+4. **Cross-Platform**: The module works on macOS, Windows, and Linux, utilizing platform-specific optimizations for a smooth experience.
 
 ### Lighting Profiles
 
 - **Bright day with sun at +Y**: High-intensity lighting simulating a bright day with the sun overhead.
-- **Cloudy day**: Low-intensity lighting to mimic overcast weather.
-- **Custom profiles**: Create your own lighting conditions by adjusting parameters like sun intensity and direction.
+- **Bright day with sun at -Y**: Simulates sunlight from below the object.
+- **Cloudy day (no direct sun)**: Simulates overcast conditions with diffuse lighting.
+- **Custom profiles**: Create your own lighting conditions by adjusting parameters such as sun intensity and direction.
 
 ### Contributing
 
