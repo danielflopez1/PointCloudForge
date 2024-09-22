@@ -64,8 +64,7 @@ base_output_folder/
 │   │   └── Area_1_alignmentAngle.txt
 │   ├── Area_2/
 │   └── ...
-├── dataset_name_2/
-└── ...
+
 ```
 
 
