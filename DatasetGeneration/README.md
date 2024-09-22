@@ -54,6 +54,7 @@ base_output_folder/
 │   │   │   ├── Annotations/
 │   │   │   │   ├── object_class_1.txt
 │   │   │   │   ├── object_class_2.txt
+│   │   │   │   ├── ...
 │   │   │   │   ├── floor_1.txt
 │   │   │   │   ├── wall_1.txt
 │   │   │   │   └── ceiling_1.txt
