@@ -7,7 +7,6 @@ from tqdm import tqdm
 import random
 import shutil
 import multiprocessing
-from functools import partial
 import logging
 
 # Set up logging
@@ -22,7 +21,7 @@ class PointCloudObject:
         self.class_count = class_count
         self.class_name = class_name
         self.bounds = self.calculate_bounds()
-        self.weight = self.calculate_weight()
+        self.weight = 0.0  # Will be calculated later using the new weight equation
         self.occurrences = 0
 
     def calculate_bounds(self):
@@ -34,15 +33,13 @@ class PointCloudObject:
         min_bounds, max_bounds = self.bounds
         return max_bounds - min_bounds
 
-    def calculate_weight(self):
-        class_count = max(self.class_count, 1)
-        return len(self.points) / self.point_density / class_count
-
-    def adjust_weight(self, placed):
+    def adjust_weight(self, placed, t_min, t_max):
         if placed:
             self.weight *= 0.9
         else:
             self.weight *= 1.1
+        # Ensure weights stay within bounds
+        self.weight = np.clip(self.weight, t_min, t_max)
 
     def increment_occurrence(self):
         self.occurrences += 1
@@ -68,6 +65,7 @@ def load_point_cloud_file(args):
         class_count = class_counts.get(class_name, 1)
         return PointCloudObject(points, point_density, class_count, class_name)
     except Exception as e:
+        logger.error(f"Error loading file {file_path}: {e}")
         return None
 
 
@@ -91,15 +89,35 @@ def load_point_clouds_from_folder(folder_path, point_density, class_counts):
         for result in tqdm(pool.imap_unordered(load_point_cloud_file, args_list), total=len(file_paths), desc="Loading Point Clouds"):
             if result is not None:
                 point_clouds.append(result)
-        pool.close()
-        pool.join()
 
     logger.info(f"Successfully loaded {len(point_clouds)} point cloud objects.")
 
     return point_clouds
 
 
-def distribute_objects_across_scenes(point_clouds, num_areas, rooms_per_area, max_objects_per_scene):
+def calculate_weights(point_clouds, t_min, t_max):
+    n_points_list = np.array([len(obj.points) for obj in point_clouds], dtype=np.float64)
+    inverse_n_points = 1.0 / n_points_list
+
+    min_inv_n_points = inverse_n_points.min()
+    max_inv_n_points = inverse_n_points.max()
+
+    denom = max_inv_n_points - min_inv_n_points
+    if denom == 0:
+        logger.warning("All objects have the same number of points. Weights will be set to t_min.")
+        for obj in point_clouds:
+            obj.weight = t_min
+    else:
+        for obj in point_clouds:
+            inv_n_points_i = 1.0 / len(obj.points)
+            normalized_value = (inv_n_points_i - min_inv_n_points) / denom
+            weight = (t_max - t_min) * normalized_value + t_min
+            obj.weight = weight
+
+    logger.info("Weights have been calculated using the new equation.")
+
+
+def distribute_objects_across_scenes(point_clouds, num_areas, rooms_per_area, max_objects_per_scene, t_min, t_max):
     if not point_clouds:
         return []
 
@@ -108,6 +126,7 @@ def distribute_objects_across_scenes(point_clouds, num_areas, rooms_per_area, ma
     weights = np.array([obj.weight for obj in point_clouds], dtype=np.float64)
 
     if weights.sum() == 0:
+        logger.warning("Sum of weights is zero. Cannot distribute objects.")
         return []
 
     for room_index in tqdm(range(total_rooms), desc="Distributing Objects"):
@@ -124,13 +143,13 @@ def distribute_objects_across_scenes(point_clouds, num_areas, rooms_per_area, ma
         room_objects = [point_clouds[i] for i in selected_indices]
 
         for idx in selected_indices:
-            point_clouds[idx].adjust_weight(placed=True)
+            point_clouds[idx].adjust_weight(placed=True, t_min=t_min, t_max=t_max)
             point_clouds[idx].increment_occurrence()
             weights[idx] = point_clouds[idx].weight
 
         non_selected_indices = np.setdiff1d(np.arange(len(point_clouds)), selected_indices)
         for idx in non_selected_indices:
-            point_clouds[idx].adjust_weight(placed=False)
+            point_clouds[idx].adjust_weight(placed=False, t_min=t_min, t_max=t_max)
             weights[idx] = point_clouds[idx].weight
 
         area_index = room_index // rooms_per_area
@@ -144,9 +163,9 @@ def place_objects_in_scene(
     max_objects,
     num_stories=3,
     story_height=3,
-    padding=0.5,
-    room_width=10.0,
-    room_length=10.0,
+    padding=0.1,
+    room_width=20.0,
+    room_length=20.0,
     max_attempts=1000
 ):
     placed_objects = []
@@ -166,6 +185,13 @@ def place_objects_in_scene(
 
             point_cloud = room_objects[object_idx]
             dimensions = point_cloud.get_dimensions() + padding
+
+            # Check if object can fit
+            if dimensions[0] > room_width or dimensions[1] > room_length:
+                logger.warning(f"Object {point_cloud.class_name} is too large to fit in the room. Skipping.")
+                object_idx += 1
+                continue
+
             placed = False
             attempt = 0
 
@@ -176,7 +202,6 @@ def place_objects_in_scene(
 
                 min_bounds = position
                 max_bounds = position + dimensions
-                obj_bbox = (min_bounds[:2], max_bounds[:2])
 
                 collision = False
                 for placed_min, placed_max in story_placed_bboxes:
@@ -195,7 +220,7 @@ def place_objects_in_scene(
                     attempt += 1
 
             if not placed:
-                pass
+                logger.warning(f"Failed to place object {point_cloud.class_name} after {max_attempts} attempts.")
 
             object_idx += 1
 
@@ -361,8 +386,12 @@ def save_scene(args):
         object_file_path = os.path.join(annotation_path, f'{obj.class_name}_{class_occurrence}.txt')
         np.savetxt(object_file_path, points_with_color, fmt='%f')
 
-    room_points = np.concatenate(room_points, axis=0)
-    room_colors = np.concatenate(room_colors, axis=0)
+    if room_points:
+        room_points = np.concatenate(room_points, axis=0)
+        room_colors = np.concatenate(room_colors, axis=0)
+    else:
+        room_points = np.empty((0, 3))
+        room_colors = np.empty((0, 3))
 
     floor_pcs, ceiling_pc, wall_pcs = add_planes(
         annotation_path, room_points, point_density, noise_level, num_stories, story_height)
@@ -414,7 +443,16 @@ def save_scenes(scenes, base_path, point_density, max_objects_per_scene, noise_l
             axis = 'z'
             alignment_angle = rotation_angle
             alignment_angles.append((room_index + 1, alignment_angle))
-            scene_objects = place_objects_in_scene(room_objects, max_objects_per_scene, num_stories, story_height)
+            scene_objects = place_objects_in_scene(
+                room_objects,
+                max_objects_per_scene,
+                num_stories,
+                story_height,
+                padding=0.1,
+                room_width=20.0,
+                room_length=20.0,
+                max_attempts=1000
+            )
 
             args = (
                 scene_objects,
@@ -434,13 +472,12 @@ def save_scenes(scenes, base_path, point_density, max_objects_per_scene, noise_l
 
     with multiprocessing.Pool() as pool:
         list(tqdm(pool.imap_unordered(save_scene, args_list), total=len(args_list), desc="Saving Scenes"))
-        pool.close()
-        pool.join()
 
 
 def delete_output_folder(base_path):
     if os.path.exists(base_path):
         shutil.rmtree(base_path)
+
 
 if __name__ == "__main__":
     point_density = 5000
@@ -448,22 +485,32 @@ if __name__ == "__main__":
     rooms_per_area = 45
     max_objects_per_scene = 30
 
-    dataset_names = [f'subsample_{point_density}_0cm',f'subsample_{point_density}_2cm',f'subsample_{point_density}_5cm']
+    dataset_names = [
+        f'subsample_{point_density}_0cm',
+        f'subsample_{point_density}_2cm',
+        f'subsample_{point_density}_5cm',
+        f'subsample_{point_density}_0cm',
+        f'subsample_{point_density}_2cm',
+        f'subsample_{point_density}_5cm'
+    ]
 
-    base_output_folder = 'path/to/dataset/base'
+    base_output_folder = '/home/daniel/PycharmProjects/DatasetGenerator/S3DIS_Scenes3/'
 
     for name in dataset_names:
-        folder_path = f'path/to/pointclouds/ObjectsTXT/{name}'
+        folder_path = f'/home/daniel/PycharmProjects/DatasetGenerator/ObjectsTXT/{name}'
         base_path = os.path.join(base_output_folder, name)
 
+        # Delete the output folder if it exists
         delete_output_folder(base_path)
 
         class_counts = get_class_counts(folder_path)
         point_clouds = load_point_clouds_from_folder(folder_path, point_density, class_counts)
 
         if not point_clouds:
+            logger.error("No point clouds were loaded. Exiting.")
             sys.exit(1)
 
+        # Determine noise level based on dataset name
         if '0cm' in name:
             noise_level = 0
         elif '2cm' in name:
@@ -473,11 +520,28 @@ if __name__ == "__main__":
         else:
             noise_level = 0
 
-        scenes = distribute_objects_across_scenes(point_clouds, num_areas, rooms_per_area, max_objects_per_scene)
+        # Define thresholds for weight calculation
+        t_min = 0.1
+        t_max = 1.0
+
+        # Calculate weights using the new weight equation
+        calculate_weights(point_clouds, t_min, t_max)
+
+        # Distribute objects across scenes with updated weights
+        scenes = distribute_objects_across_scenes(
+            point_clouds,
+            num_areas,
+            rooms_per_area,
+            max_objects_per_scene,
+            t_min,
+            t_max
+        )
 
         if not scenes:
+            logger.error("No scenes were generated. Exiting.")
             sys.exit(1)
 
+        # Save the generated scenes
         save_scenes(scenes, base_path, point_density, max_objects_per_scene, noise_level)
 
     logger.info("Scene generation completed.")
