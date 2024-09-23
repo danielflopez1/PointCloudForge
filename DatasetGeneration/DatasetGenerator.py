@@ -179,10 +179,7 @@ def place_objects_in_scene(
         num_objects_this_story = objects_per_story + (1 if story < extra_objects else 0)
         story_placed_bboxes = []
 
-        for _ in range(num_objects_this_story):
-            if object_idx >= len(room_objects):
-                break
-
+        while num_objects_this_story > 0 and object_idx < len(room_objects):
             point_cloud = room_objects[object_idx]
             dimensions = point_cloud.get_dimensions() + padding
 
@@ -223,6 +220,7 @@ def place_objects_in_scene(
                 logger.warning(f"Failed to place object {point_cloud.class_name} after {max_attempts} attempts.")
 
             object_idx += 1
+            num_objects_this_story -= 1
 
     return placed_objects
 
@@ -251,11 +249,16 @@ def mesh_to_point_cloud(mesh, num_points=1000):
 
 
 def add_planes(annotation_path, room_points, point_density, noise_level, num_stories, story_height):
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(room_points)
-    aabb = pcd.get_axis_aligned_bounding_box()
-    min_bound = aabb.min_bound
-    max_bound = aabb.max_bound
+    if room_points.size == 0:
+        # If there are no objects, define default room bounds
+        min_bound = np.array([0, 0, 0])
+        max_bound = np.array([20.0, 20.0, num_stories * story_height])
+    else:
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(room_points)
+        aabb = pcd.get_axis_aligned_bounding_box()
+        min_bound = aabb.min_bound
+        max_bound = aabb.max_bound
 
     floors = []
 
@@ -386,6 +389,7 @@ def save_scene(args):
         object_file_path = os.path.join(annotation_path, f'{obj.class_name}_{class_occurrence}.txt')
         np.savetxt(object_file_path, points_with_color, fmt='%f')
 
+    # Handle empty room_points and room_colors
     if room_points:
         room_points = np.concatenate(room_points, axis=0)
         room_colors = np.concatenate(room_colors, axis=0)
@@ -489,9 +493,6 @@ if __name__ == "__main__":
         f'subsample_{point_density}_0cm',
         f'subsample_{point_density}_2cm',
         f'subsample_{point_density}_5cm',
-        f'subsample_{point_density}_0cm',
-        f'subsample_{point_density}_2cm',
-        f'subsample_{point_density}_5cm'
     ]
 
     base_output_folder = '/home/daniel/PycharmProjects/DatasetGenerator/S3DIS_Scenes3/'
