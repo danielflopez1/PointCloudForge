@@ -1,0 +1,73 @@
+import open3d as o3d
+import os
+# Define paths
+
+def convert_pcd(input_file):
+    print(f"Converting PCD file: {input_file}")
+
+    base, _ = os.path.splitext(input_file)
+    output_file = f"{base}.txt"
+
+    try:
+        # Read PCD file
+        pcd = o3d.io.read_point_cloud(input_file, format='pcd')
+
+        # Extract point cloud data
+        points = pcd.points
+        colors = pcd.colors
+
+        # Write new header and data in one go
+        with open(output_file, 'w') as outfile:
+            outfile.write("x y z r g b\n")
+            for point, color in zip(points, colors):
+                outfile.write(f"{point[0]:.8f} {point[1]:.10f} {point[2]:.10f} "
+                              f"{color[0]:.10f} {color[1]:.10f} {color[2]:.10f}\n")
+    except FileNotFoundError:
+        print(f"File not found: {input_file}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    # Delete the original file
+    try:
+        os.remove(input_file)
+    except OSError as e:
+        print(f"Error deleting file: {e.strerror}. File: {e.filename}")
+
+
+
+
+def preprocess_meshes(obj_path, pcd_path):
+    print("Starting mesh preprocessing...")
+    # Create the PCD_PATH directory if it doesn't exist
+    os.makedirs(pcd_path, exist_ok=True)
+
+    for root, dirs, files in os.walk(obj_path):
+        for file in files:
+            if file.endswith('.glb'):
+                relative_path = os.path.relpath(root, obj_path)
+                output_dir = os.path.join(pcd_path, relative_path)
+                os.makedirs(output_dir, exist_ok=True)
+
+                # Save the point cloud
+                output_pcd_path = os.path.join(output_dir, f"{os.path.splitext(file)[0]}.pcd")
+                mesh_path = os.path.join(root, file)
+                if os.path.exists(output_pcd_path):
+                    print(f"Skipping existing PCD file: {output_pcd_path}")
+                    continue
+                print(f"Processing mesh: {mesh_path}")
+
+                # Load the mesh
+                mesh = o3d.io.read_triangle_mesh(mesh_path)
+                surface_area = mesh.get_surface_area()
+                mesh.compute_vertex_normals()
+
+                # Sample points from the mesh
+                pcd = mesh.sample_points_poisson_disk(number_of_points=max(50000, int(surface_area / 10)))
+
+                # Create the output directory structure
+
+                o3d.io.write_point_cloud(output_pcd_path, pcd, write_ascii=True)
+                #convert_pcd(output_pcd_path)
+
+
+preprocess_meshes("path/to/dataset/of/glb", "path/to/pcd/folder")
