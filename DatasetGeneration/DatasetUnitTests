@@ -1,0 +1,216 @@
+import os
+import re
+import sys
+
+def verify_point_cloud_file(file_path, error_log):
+    # Verify that the point cloud file has the correct format and RGB values within [0,255]
+    points = []
+    try:
+        with open(file_path, 'r') as f:
+            for line_number, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue  # Skip empty lines
+                parts = line.strip().split()
+                if len(parts) != 6:
+                    error_log.append(f"Invalid line at {file_path}:{line_number}. Expected 6 values, got {len(parts)}")
+                    continue
+                try:
+                    # Convert x, y, z, r, g, b to floats
+                    x, y, z = map(float, parts[:3])
+                    r, g, b = map(float, parts[3:])
+                    for color_value, color_name in zip([r, g, b], ['r', 'g', 'b']):
+                        if not (0 <= color_value <= 255):
+                            error_log.append(f"RGB value out of range in {file_path}:{line_number}. {color_name.upper()}={color_value}")
+                    # Store the point
+                    points.append((round(x, 6), round(y, 6), round(z, 6), int(r), int(g), int(b)))
+                except ValueError:
+                    error_log.append(f"Invalid numeric value in {file_path}:{line_number}. Line: {line}")
+                    continue
+        return points
+    except Exception as e:
+        error_log.append(f"Error reading point cloud file {file_path}: {e}")
+        return None
+
+def verify_alignment_file(alignment_file, room_numbers, error_log):
+    # Verify that the alignment file has the correct format
+    try:
+        with open(alignment_file, 'r') as f:
+            lines = f.readlines()
+        if len(lines) < 3:
+            error_log.append(f"Alignment file {alignment_file} should have at least 3 lines.")
+            return
+        # The first two lines should be comments starting with '##'
+        if not lines[0].strip().startswith("##"):
+            error_log.append(f"Alignment file {alignment_file} does not start with '##' comment.")
+        if not lines[1].strip().startswith("##"):
+            error_log.append(f"Alignment file {alignment_file} second line does not start with '##' comment.")
+        # The remaining lines should have 'room_name angle'
+        for line in lines[2:]:
+            parts = line.strip().split()
+            if len(parts) != 2:
+                error_log.append(f"Invalid line in alignment file {alignment_file}: {line.strip()}")
+                continue
+            room_name, angle = parts
+            match = re.match(r'room_(\d+)', room_name)
+            if not match:
+                error_log.append(f"Invalid room name in alignment file {alignment_file}: {room_name}")
+            else:
+                room_number = int(match.group(1))
+                room_numbers.add(room_number)
+            if angle not in ['0', '90', '180', '270']:
+                error_log.append(f"Invalid angle in alignment file {alignment_file}: {angle}")
+    except Exception as e:
+        error_log.append(f"Error reading alignment file {alignment_file}: {e}")
+
+def verify_dataset_format(dataset_path):
+    from tqdm import tqdm
+
+    error_log = []
+
+    # Verify that the dataset at dataset_path conforms to the specified format
+
+    # First, check that dataset_path exists and is a directory
+    if not os.path.isdir(dataset_path):
+        error_log.append(f"Dataset path {dataset_path} does not exist or is not a directory.")
+        return error_log
+
+    # List entries in dataset_path, expecting them to be Area folders.
+    area_dirs = [d for d in os.listdir(dataset_path) if os.path.isdir(os.path.join(dataset_path, d))]
+
+    # For each area directory
+    for area_dir in tqdm(area_dirs, desc="Verifying Areas", unit="area"):
+        area_path = os.path.join(dataset_path, area_dir)
+        # Check that the area_dir name matches 'Area_x'
+        if not re.match(r'Area_\d+', area_dir):
+            error_log.append(f"Area directory {area_dir} does not match 'Area_x' pattern.")
+            continue  # Move to next area_dir
+
+        # Check that Area_x_alignmentAngle.txt exists in area directory
+        alignment_file = os.path.join(area_path, f"{area_dir}_alignmentAngle.txt")
+        room_numbers_in_alignment = set()
+        if not os.path.isfile(alignment_file):
+            error_log.append(f"Missing alignment angle file: {alignment_file}")
+        else:
+            verify_alignment_file(alignment_file, room_numbers_in_alignment, error_log)
+
+        # Collect expected room numbers from alignment file
+        expected_room_numbers = sorted(room_numbers_in_alignment)
+        if expected_room_numbers:
+            min_room_number = min(expected_room_numbers)
+            max_room_number = max(expected_room_numbers)
+            continuous_room_numbers = list(range(min_room_number, max_room_number + 1))
+            if expected_room_numbers != continuous_room_numbers:
+                error_log.append(f"Room numbers in {alignment_file} are not continuous. Expected {continuous_room_numbers}, found {expected_room_numbers}")
+
+        # List entries in area directory, excluding the alignment file
+        area_contents = [d for d in os.listdir(area_path) if d != f"{area_dir}_alignmentAngle.txt"]
+        room_dirs = []
+        for entry in area_contents:
+            entry_path = os.path.join(area_path, entry)
+            if os.path.isdir(entry_path):
+                room_dirs.append(entry)
+            else:
+                error_log.append(f"Unexpected file {entry} in {area_dir}")
+
+        # Verify room directories
+        actual_room_numbers = []
+        for room_dir in room_dirs:
+            room_path = os.path.join(area_path, room_dir)
+            # Check that room_dir matches 'room_x' pattern
+            match = re.match(r'room_(\d+)', room_dir)
+            if not match:
+                error_log.append(f"Room directory {room_dir} does not match 'room_x' pattern in {area_dir}.")
+                continue
+
+            room_number = int(match.group(1))
+            actual_room_numbers.append(room_number)
+
+            # Check for room_x.txt in the room directory
+            room_file = os.path.join(room_path, f"{room_dir}.txt")
+            if not os.path.isfile(room_file):
+                error_log.append(f"Missing point cloud file: {room_file}")
+                room_points = None
+                room_points_set = set()
+            else:
+                room_points = verify_point_cloud_file(room_file, error_log)
+                if room_points is not None:
+                    room_points_set = set(room_points)
+                else:
+                    room_points_set = set()
+
+            # Check for Annotations folder in the room directory
+            annotations_dir = os.path.join(room_path, "Annotations")
+            if not os.path.isdir(annotations_dir):
+                error_log.append(f"Missing Annotations directory in {room_dir}")
+            else:
+                object_files = [f for f in os.listdir(annotations_dir) if os.path.isfile(os.path.join(annotations_dir, f))]
+                # Dictionary to hold indices for each object type
+                object_type_indices = {}
+                for object_file in object_files:
+                    # Extract the object type and index from filename
+                    match = re.match(r'([a-zA-Z]+)_(\d+)\.txt$', object_file)
+                    if match:
+                        object_type = match.group(1)
+                        index = int(match.group(2))
+                        if object_type not in object_type_indices:
+                            object_type_indices[object_type] = []
+                        object_type_indices[object_type].append(index)
+                    else:
+                        error_log.append(f"Object file {object_file} in {annotations_dir} does not match '<type>_<index>.txt' pattern.")
+                    # Verify the point cloud file and collect points
+                    object_file_path = os.path.join(annotations_dir, object_file)
+                    annotation_points = verify_point_cloud_file(object_file_path, error_log)
+                    # Verify that annotation points are in room points
+                    if room_points is not None and annotation_points is not None:
+                        # Convert annotation points to set
+                        annotation_points_set = set(annotation_points)
+                        if not annotation_points_set.issubset(room_points_set):
+                            error_log.append(f"Points in {object_file} are not all present in {room_dir}.txt in {area_dir}")
+                    else:
+                        error_log.append(f"Could not verify points for {object_file}")
+
+                # Now check if indices for each object type are continuous starting from 1
+                for obj_type, indices in object_type_indices.items():
+                    indices = sorted(indices)
+                    expected_indices = list(range(1, max(indices) + 1))
+                    if indices != expected_indices:
+                        error_log.append(f"Indices for object type '{obj_type}' in {annotations_dir} are not continuous starting from 1.")
+                        error_log.append(f"Expected indices: {expected_indices}")
+                        error_log.append(f"Found indices: {indices}")
+
+        # Check that actual room numbers are continuous and match expected numbers
+        actual_room_numbers = sorted(actual_room_numbers)
+        if actual_room_numbers:
+            min_room_number = min(actual_room_numbers)
+            max_room_number = max(actual_room_numbers)
+            expected_numbers = list(range(min_room_number, max_room_number + 1))
+            if actual_room_numbers != expected_numbers:
+                error_log.append(f"Room directories in {area_dir} are not continuous. Expected {expected_numbers}, found {actual_room_numbers}")
+
+        # Compare room numbers from alignment file and actual room directories
+        if expected_room_numbers and actual_room_numbers:
+            if set(expected_room_numbers) != set(actual_room_numbers):
+                error_log.append(f"Mismatch between rooms in alignment file and directories in {area_dir}.")
+                error_log.append(f"Rooms in alignment file: {sorted(expected_room_numbers)}")
+                error_log.append(f"Room directories: {sorted(actual_room_numbers)}")
+
+    # After verification, print all the errors collected
+    if error_log:
+        print("\nVerification completed with errors:")
+        for error in error_log:
+            print(error)
+    else:
+        print("\nVerification completed successfully. No errors found.")
+    return error_log
+
+if __name__ == '__main__':
+    # Check if tqdm is installed
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        print("tqdm is not installed. Please install it by running 'pip install tqdm'")
+        sys.exit(1)
+
+    dataset_path = "/path/to/dataset"
+    verify_dataset_format(dataset_path)
