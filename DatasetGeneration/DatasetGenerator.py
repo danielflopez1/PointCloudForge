@@ -402,7 +402,7 @@ def save_scene(args):
     os.makedirs(annotation_path, exist_ok=True)
 
     class_counter = defaultdict(int)
-
+    room_points = []
     rotation_matrix = generate_rotation_matrix(rotation_angle, axis)
 
     # Save individual object files and collect their file paths
@@ -425,11 +425,20 @@ def save_scene(args):
         np.savetxt(object_file_path, points_with_color, fmt='%f')
         object_file_paths.append(object_file_path)
 
+        # Collect room points
+        room_points.append(rotated_points)
+
+    # Combine all room points into a single array
+    if room_points:
+        room_points = np.concatenate(room_points, axis=0)
+    else:
+        room_points = np.empty((0, 3))
+
     # Add planes and save them as individual files
     floor_pcs, ceiling_pc, wall_pcs = add_planes(
-        annotation_path, np.empty((0, 3)), point_density, noise_level, num_stories, story_height)
+        annotation_path, room_points, point_density, noise_level, num_stories, story_height)
 
-    plane_elements = []
+    # Save planes and collect their file paths
     for idx, floor_pc in enumerate(floor_pcs):
         floor_points_with_color = np.hstack((np.asarray(floor_pc.points), np.asarray(floor_pc.colors) * 255))
         floor_file_name = f'floor_{idx + 1}.txt'
@@ -530,10 +539,10 @@ if __name__ == "__main__":
         f'subsample_{point_density}_0cm'
     ]
 
-    base_output_folder = '/path/to/base/folder/dataset'
-    delete_output_folder(base_output_folder)
+    base_output_folder = '/home/daniel/PycharmProjects/DatasetGenerator/S3DIS_Scenes3/'
+
     for name in dataset_names:
-        folder_path = f'/path/to/point/cloud/dataset/{name}'
+        folder_path = f'/home/daniel/PycharmProjects/DatasetGenerator/ObjectsTXT/{name}'
         base_path = os.path.join(base_output_folder, name)
 
         point_clouds = load_point_clouds_from_folder(folder_path)
