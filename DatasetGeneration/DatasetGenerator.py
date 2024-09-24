@@ -131,11 +131,6 @@ def distribute_objects_across_scenes(point_clouds, num_areas, rooms_per_area, ma
     # Shuffle scenes to distribute classes evenly
     random.shuffle(all_scenes)
 
-    # Create a pool of objects per class (allow sampling with replacement)
-    class_to_object_pool = {}
-    for cls in classes:
-        class_to_object_pool[cls] = class_to_objects[cls]
-
     # For each class, distribute objects across scenes
     class_to_scene_objects = defaultdict(list)
     for cls in classes:
@@ -406,11 +401,12 @@ def save_scene(args):
 
     os.makedirs(annotation_path, exist_ok=True)
 
-    room_points = []
-    room_colors = []
     class_counter = defaultdict(int)
 
     rotation_matrix = generate_rotation_matrix(rotation_angle, axis)
+
+    # Save individual object files and collect their file paths
+    object_file_paths = []
 
     for obj, position in scene_objects:
         class_counter[obj.class_name] += 1
@@ -423,48 +419,49 @@ def save_scene(args):
         else:
             colors = np.zeros((rotated_points.shape[0], 3))
 
-        room_points.append(rotated_points)
-        room_colors.append(colors)
-
         points_with_color = np.hstack((rotated_points, colors))
-        object_file_path = os.path.join(annotation_path, f'{obj.class_name}_{class_occurrence}.txt')
+        object_file_name = f'{obj.class_name}_{class_occurrence}.txt'
+        object_file_path = os.path.join(annotation_path, object_file_name)
         np.savetxt(object_file_path, points_with_color, fmt='%f')
+        object_file_paths.append(object_file_path)
 
-    # Handle empty room_points and room_colors
-    if room_points:
-        room_points = np.concatenate(room_points, axis=0)
-        room_colors = np.concatenate(room_colors, axis=0)
-    else:
-        room_points = np.empty((0, 3))
-        room_colors = np.empty((0, 3))
-
+    # Add planes and save them as individual files
     floor_pcs, ceiling_pc, wall_pcs = add_planes(
-        annotation_path, room_points, point_density, noise_level, num_stories, story_height)
+        annotation_path, np.empty((0, 3)), point_density, noise_level, num_stories, story_height)
 
+    plane_elements = []
     for idx, floor_pc in enumerate(floor_pcs):
         floor_points_with_color = np.hstack((np.asarray(floor_pc.points), np.asarray(floor_pc.colors) * 255))
-        floor_file_path = os.path.join(annotation_path, f'floor_{idx + 1}.txt')
+        floor_file_name = f'floor_{idx + 1}.txt'
+        floor_file_path = os.path.join(annotation_path, floor_file_name)
         np.savetxt(floor_file_path, floor_points_with_color, fmt='%f')
+        object_file_paths.append(floor_file_path)
 
     for idx, wall_pc in enumerate(wall_pcs):
         wall_points_with_color = np.hstack((np.asarray(wall_pc.points), np.asarray(wall_pc.colors) * 255))
-        wall_file_path = os.path.join(annotation_path, f'wall_{idx + 1}.txt')
+        wall_file_name = f'wall_{idx + 1}.txt'
+        wall_file_path = os.path.join(annotation_path, wall_file_name)
         np.savetxt(wall_file_path, wall_points_with_color, fmt='%f')
+        object_file_paths.append(wall_file_path)
 
     ceiling_points_with_color = np.hstack((np.asarray(ceiling_pc.points), np.asarray(ceiling_pc.colors) * 255))
-    ceiling_file_path = os.path.join(annotation_path, f'ceiling_1.txt')
+    ceiling_file_name = 'ceiling_1.txt'
+    ceiling_file_path = os.path.join(annotation_path, ceiling_file_name)
     np.savetxt(ceiling_file_path, ceiling_points_with_color, fmt='%f')
+    object_file_paths.append(ceiling_file_path)
 
-    all_planes_points = np.vstack([np.asarray(pc.points) for pc in floor_pcs + [ceiling_pc] + wall_pcs])
-    all_planes_colors = np.vstack([np.asarray(pc.colors) * 255 for pc in floor_pcs + [ceiling_pc] + wall_pcs])
+    # Read all files from the Annotations folder and combine them into room_x.txt
+    room_points_with_colors = []
+    for file_path in sorted(object_file_paths):
+        data = np.loadtxt(file_path)
+        room_points_with_colors.append(data)
 
-    room_points = np.concatenate([room_points, all_planes_points], axis=0)
-    room_colors = np.concatenate([room_colors, all_planes_colors], axis=0)
-
-    room_points_with_colors = np.hstack((room_points, room_colors))
-
-    combined_room_file_path = os.path.join(room_path, f'room_{room_index + 1}.txt')
-    np.savetxt(combined_room_file_path, room_points_with_colors, fmt='%f')
+    if room_points_with_colors:
+        room_points_with_colors = np.vstack(room_points_with_colors)
+        combined_room_file_path = os.path.join(room_path, f'room_{room_index + 1}.txt')
+        np.savetxt(combined_room_file_path, room_points_with_colors, fmt='%f')
+    else:
+        logger.warning(f"No data found in room {room_index + 1} to save.")
 
 
 def save_alignment_angles(base_path, area_index, alignment_angles):
@@ -533,10 +530,10 @@ if __name__ == "__main__":
         f'subsample_{point_density}_0cm'
     ]
 
-    base_output_folder = '/home/daniel/PycharmProjects/DatasetGenerator/S3DIS_Scenes3/'
-
+    base_output_folder = '/path/to/base/folder/dataset'
+    delete_output_folder(base_output_folder)
     for name in dataset_names:
-        folder_path = f'/home/daniel/PycharmProjects/DatasetGenerator/ObjectsTXT/{name}'
+        folder_path = f'/path/to/point/cloud/dataset/{name}'
         base_path = os.path.join(base_output_folder, name)
 
         point_clouds = load_point_clouds_from_folder(folder_path)
