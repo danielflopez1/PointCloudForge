@@ -57,12 +57,6 @@ pip install numpy open3d tqdm
    cd PointCloudForge
    ```
 
-3. Run the point cloud generation script:
-
-   ```bash
-   python pointcloudforge.py
-   ```
-
 ### Usage
 
 PointCloudForge allows you to generate customized point cloud datasets. You can adjust parameters such as:
