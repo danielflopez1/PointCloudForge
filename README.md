@@ -19,7 +19,7 @@ Object generation within PointCloudForge is based on three key technologies:
 2. **InstantMesh**: Developed by TencentARC, InstantMesh is used for creating high-quality, procedurally generated meshes that serve as the foundation for point cloud data. Explore this model on HuggingFace here: [InstantMesh](https://huggingface.co/spaces/TencentARC/InstantMesh).
 
 ## Dataset Generation
-Refer to the [Dataset Generator](https://github.com/danielflopez1/PointCloudForge/tree/main/DatasetGeneration)
+Refer to the [Dataset Generator](https://github.com/danielflopez1/PointCloudForge/tree/main/DatasetGeneration) additionally the dataset can be downloaded [here](https://drive.google.com/drive/folders/1Mm_oXaCFNzYMCjW9fn5Y-9vCxJXCqb3N?usp=drive_link)
 
 ## Getting Started
 
